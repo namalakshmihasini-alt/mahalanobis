@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Mahalanobis Outlier Detective</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .custom-shadow { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col justify-between">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 shadow-md">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <span>The Mahalanobis Outlier Detective</span>
+                </h1>
+                <p class="text-sm text-slate-400">Why standard distance measures miss the real story</p>
+            </div>
+            <div class="mt-3 sm:mt-0 flex gap-2">
+                <button onclick="setStep(1)" id="btn-step1" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-500">1. Euclidean View</button>
+                <button onclick="setStep(2)" id="btn-step2" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600">2. The Twist (Mahalanobis)</button>
+                <button onclick="setStep(3)" id="btn-step3" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600">3. Interactive Sandbox</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 my-auto">
+        
+        <!-- Left / Center: Visualization Area (2 columns) -->
+        <div class="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-6 custom-shadow flex flex-col justify-between">
+            <div>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="view-title" class="text-lg font-bold text-indigo-300">Step 1: "Who looks unusual?" (Euclidean Distance)</h2>
+                    <span id="badge-mode" class="px-2.5 py-1 text-xs font-medium bg-blue-900/60 text-blue-300 border border-blue-700 rounded-full">Circular Boundary</span>
+                </div>
+                <p id="view-description" class="text-sm text-slate-300 mb-4">
+                    Looking at Study Hours vs. Sleep Hours, <strong>Dev</strong> clearly stands out because of his extreme study hours. Euclidean distance measures straight-line distance from the group average.
+                </p>
+            </div>
+
+            <!-- Canvas Container -->
+            <div class="relative w-full aspect-square max-h-[420px] bg-slate-900 rounded-xl border border-slate-700 flex items-center justify-center overflow-hidden">
+                <canvas id="simCanvas" class="w-full h-full cursor-crosshair"></canvas>
+                <div id="canvas-tooltip" class="absolute bottom-2 left-2 bg-slate-800/90 backdrop-blur border border-slate-700 px-3 py-1.5 rounded-lg text-xs text-slate-200 pointer-events-none hidden">
+                    Hover over a point
+                </div>
+            </div>
+
+            <div class="mt-4 text-xs text-slate-400 flex items-center justify-between">
+                <span>Axis X: Study Hours (Std Dev normalized)</span>
+                <span>Axis Y: Sleep Hours (Std Dev normalized)</span>
+            </div>
+        </div>
+
+        <!-- Right Column: Leaderboard / Explanation Panel -->
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 custom-shadow flex flex-col justify-between">
+            <div>
+                <h3 class="text-md font-bold text-slate-200 mb-3 flex items-center gap-2">
+                    <span>Outlier Rankings</span>
+                </h3>
+                <p id="ranking-subtitle" class="text-xs text-slate-400 mb-4">Based on Euclidean distance from average group center.</p>
+
+                <!-- Leaderboard Table -->
+                <div class="overflow-x-auto rounded-lg border border-slate-700 mb-4">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-700/50 text-slate-300 uppercase tracking-wider">
+                            <tr>
+                                <th class="p-2.5">Rank</th>
+                                <th class="p-2.5">Name</th>
+                                <th class="p-2.5 text-right" id="th-score1">Euclidean</th>
+                                <th class="p-2.5 text-right hidden" id="th-score2">Mahalanobis</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboard-body" class="divide-y divide-slate-700 text-slate-200">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Dynamic Callout Box -->
+            <div id="callout-box" class="bg-indigo-950/40 border border-indigo-800/60 rounded-xl p-4 text-xs text-indigo-200">
+                <span class="font-bold block mb-1 text-indigo-300">Central Insight:</span>
+                <span id="callout-text">Euclidean distance asks: <em>"How far are you from the average in a straight line?"</em> Dev wins because he's far out horizontally.</span>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer / Narrative Bar -->
+    <footer class="bg-slate-800 border-t border-slate-700 py-3 px-6 text-center text-xs text-slate-400">
+        <p>Mahalanobis Outlier Detective &bull; Interactive Demonstration &bull; <span class="text-indigo-400 font-medium">Context changes the definition of unusual.</span></p>
+    </footer>
+
+    <!-- Script Logic -->
+    <script>
+        let dataset = [
+            { name: "Dev", study: 2.8, sleep: -0.2, custom: false },
+            { name: "Simran", study: 1.6, sleep: 1.5, custom: false },
+            { name: "Aarav", study: 0.2, sleep: -0.1, custom: false },
+            { name: "Priya", study: -0.5, sleep: 0.6, custom: false },
+            { name: "Rohan", study: 1.0, sleep: -0.8, custom: false },
+            { name: "Neha", study: -1.2, sleep: 1.1, custom: false },
+            { name: "Kabir", study: 0.5, sleep: -0.4, custom: false },
+            { name: "Ananya", study: -0.8, sleep: 0.9, custom: false },
+            { name: "Vikram", study: 1.4, sleep: -1.2, custom: false },
+            { name: "Meera", study: -1.5, sleep: 1.4, custom: false },
+            { name: "Rahul", study: 0.0, sleep: 0.0, custom: false },
+            { name: "Divya", study: -0.3, sleep: 0.4, custom: false },
+            { name: "Arjun", study: 0.9, sleep: -0.9, custom: false },
+            { name: "Tanvi", study: -1.0, sleep: 1.0, custom: false },
+            { name: "Karan", study: 0.4, sleep: -0.3, custom: false },
+            { name: "Rhea", study: -0.6, sleep: 0.7, custom: false },
+            { name: "Zoya", study: 1.1, sleep: -1.0, custom: false },
+            { name: "Kabir S.", study: -0.2, sleep: 0.1, custom: false }
+        ];
+
+        let currentStep = 1;
+        let activePointIndex = null;
+
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function computeDistances() {
+            let meanX = dataset.reduce((acc, p) => acc + p.study, 0) / dataset.length;
+            let meanY = dataset.reduce((acc, p) => acc + p.sleep, 0) / dataset.length;
+
+            let covXX = 1.0, covYY = 1.0, covXY = -0.75;
+            let det = covXX * covYY - covXY * covXY;
+            let invXX = covYY / det;
+            let invYY = covXX / det;
+            let invXY = -covXY / det;
+
+            dataset.forEach(p => {
+                let dx = p.study - meanX;
+                let dy = p.sleep - meanY;
+
+                p.euclidean = Math.sqrt(dx*dx + dy*dy);
+
+                let mSq = (dx * dx * invXX) + (2 * dx * dy * invXY) + (dy * dy * invYY);
+                p.mahalanobis = Math.sqrt(Math.max(0, mSq));
+            });
+        }
+
+        function setStep(step) {
+            currentStep = step;
+            
+            for (let i = 1; i <= 3; i++) {
+                const btn = document.getElementById(`btn-step${i}`);
+                if (i === step) {
+                    btn.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-500";
+                } else {
+                    btn.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600";
+                }
+            }
+
+            const title = document.getElementById('view-title');
+            const desc = document.getElementById('view-description');
+            const badge = document.getElementById('badge-mode');
+            const callout = document.getElementById('callout-text');
+            const subtitle = document.getElementById('ranking-subtitle');
+            const thScore1 = document.getElementById('th-score1');
+            const thScore2 = document.getElementById('th-score2');
+
+            if (step === 1) {
+                title.innerText = 'Step 1: "Who looks unusual?" (Euclidean Distance)';
+                desc.innerHTML = 'Looking at Study Hours vs. Sleep Hours, <strong>Dev</strong> clearly stands out because of his extreme study hours. Euclidean distance measures straight-line distance from the group average.';
+                badge.innerText = 'Circular Boundary';
+                badge.className = 'px-2.5 py-1 text-xs font-medium bg-blue-900/65 text-blue-300 border border-blue-700 rounded-full';
+                subtitle.innerText = 'Based on Euclidean distance from average group center.';
+                thScore1.innerText = 'Euclidean';
+                thScore2.classList.add('hidden');
+                callout.innerHTML = 'Euclidean distance asks: <em>"How far are you from the average in a straight line?"</em> Dev wins because he is far out horizontally.';
+            } else if (step === 2) {
+                title.innerText = 'Step 2: "What if variables are related?" (Mahalanobis Distance)';
+                desc.innerHTML = 'Study and Sleep move together negatively in real life (more study = less sleep). The boundary stretches into an <strong>ellipse</strong>. Notice how Simran breaks this pattern, making her the true outlier!';
+                badge.innerText = 'Covariance Ellipse';
+                badge.className = 'px-2.5 py-1 text-xs font-medium bg-purple-900/65 text-purple-300 border border-purple-700 rounded-full';
+                subtitle.innerText = 'Based on Mahalanobis distance (accounting for data correlation).';
+                thScore1.innerText = 'Mahalanobis';
+                thScore2.classList.add('hidden');
+                callout.innerHTML = 'Mahalanobis distance asks: <em>"How unusual are you given the covariance pattern?"</em> Dev fits the correlation trend well, so he drops to rank 4. Simran is unusual relative to the trend!';
+            } else if (step === 3) {
+                title.innerText = 'Step 3: Interactive Sandbox (Both Measures)';
+                desc.innerHTML = '<strong>Click and drag any point</strong> around the canvas. Compare both <strong>Euclidean</strong> (straight-line distance) and <strong>Mahalanobis</strong> (correlation-aware distance) rankings simultaneously in real time!';
+                badge.innerText = 'Dual Comparison Mode';
+                badge.className = 'px-2.5 py-1 text-xs font-medium bg-emerald-900/65 text-emerald-300 border border-emerald-700 rounded-full';
+                subtitle.innerText = 'Comparing Euclidean vs. Mahalanobis side by side.';
+                thScore1.innerText = 'Euclidean';
+                thScore2.classList.remove('hidden');
+                callout.innerHTML = 'Sandbox Comparison: Notice how a point can have a high Euclidean distance (far from center) but a low Mahalanobis distance (if it follows the diagonal correlation trend)!';
+            }
+
+            draw();
+        }
+
+        function toCanvasX(x, width) {
+            return width / 2 + (x * (width / 7));
+        }
+        function toCanvasY(y, height) {
+            return height / 2 - (y * (height / 7));
+        }
+        function fromCanvasX(px, width) {
+            return (px - width / 2) / (width / 7);
+        }
+        function fromCanvasY(py, height) {
+            return -(py - height / 2) / (height / 7);
+        }
+
+        function draw() {
+            computeDistances();
+
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height);
+            ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2);
+            ctx.stroke();
+
+            ctx.save();
+            if (currentStep === 1) {
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                let radius = 2.0 * (width / 7);
+                ctx.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            } else {
+                ctx.strokeStyle = '#a855f7';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                
+                let cx = width / 2;
+                let cy = height / 2;
+                let scale = width / 7;
+                
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(-Math.PI / 4);
+                ctx.scale(1.8 * scale, 0.9 * scale);
+                ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+                ctx.restore();
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            dataset.forEach((p, idx) => {
+                let px = toCanvasX(p.study, width);
+                let py = toCanvasY(p.sleep, height);
+
+                let isDev = p.name === "Dev";
+                let isSimran = p.name === "Simran";
+
+                ctx.beginPath();
+                ctx.arc(px, py, (isDev || isSimran) ? 8 : 6, 0, Math.PI * 2);
+                
+                if (isDev) {
+                    ctx.fillStyle = currentStep === 1 ? '#3b82f6' : '#64748b';
+                } else if (isSimran) {
+                    ctx.fillStyle = currentStep >= 2 ? '#a855f7' : '#94a3b8';
+                } else {
+                    ctx.fillStyle = '#cbd5e1';
+                }
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#1e293b';
+                ctx.stroke();
+
+                if (isDev || isSimran) {
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.fillText(p.name, px + 12, py + 4);
+                }
+            });
+
+            updateLeaderboard();
+        }
+
+        function updateLeaderboard() {
+            const tbody = document.getElementById('leaderboard-body');
+            tbody.innerHTML = '';
+
+            let sorted;
+            if (currentStep === 3) {
+                // In sandbox mode, sort by Mahalanobis by default or let user see both side-by-side ranked by Mahalanobis
+                sorted = [...dataset].sort((a, b) => b.mahalanobis - a.mahalanobis);
+            } else if (currentStep === 1) {
+                sorted = [...dataset].sort((a, b) => b.euclidean - a.euclidean);
+            } else {
+                sorted = [...dataset].sort((a, b) => b.mahalanobis - a.mahalanobis);
+            }
+
+            sorted.slice(0, 6).forEach((item, index) => {
+                let tr = document.createElement('tr');
+                if (item.name === "Dev" && currentStep === 1) tr.className = "bg-blue-950/40 font-semibold";
+                if (item.name === "Simran" && currentStep === 2) tr.className = "bg-purple-950/40 font-semibold";
+
+                if (currentStep === 3) {
+                    tr.innerHTML = `
+                        <td class="p-2.5">#${index + 1}</td>
+                        <td class="p-2.5">${item.name}</td>
+                        <td class="p-2.5 text-right font-mono text-blue-300">${item.euclidean.toFixed(2)}</td>
+                        <td class="p-2.5 text-right font-mono text-purple-300">${item.mahalanobis.toFixed(2)}</td>
+                    `;
+                } else {
+                    let score = currentStep === 1 ? item.euclidean : item.mahalanobis;
+                    tr.innerHTML = `
+                        <td class="p-2.5">#${index + 1}</td>
+                        <td class="p-2.5">${item.name}</td>
+                        <td class="p-2.5 text-right font-mono">${score.toFixed(2)}</td>
+                    `;
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        let isDragging = false;
+        let selectedPoint = null;
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (currentStep !== 3) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+
+            dataset.forEach(p => {
+                let px = toCanvasX(p.study, width);
+                let py = toCanvasY(p.sleep, height);
+                let dist = Math.hypot(px - mouseX, py - mouseY);
+                if (dist < 18) {
+                    isDragging = true;
+                    selectedPoint = p;
+                }
+            });
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging || !selectedPoint || currentStep !== 3) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+
+            selectedPoint.study = fromCanvasX(mouseX, width);
+            selectedPoint.sleep = fromCanvasY(mouseY, height);
+            draw();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            selectedPoint = null;
+        });
+
+        window.onload = () => {
+            resizeCanvas();
+        };
+    </script>
+</body>
+</html>
