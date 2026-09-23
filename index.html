@@ -55,6 +55,50 @@
                 <span>Axis X: Study Hours (Std Dev normalized)</span>
                 <span>Axis Y: Sleep Hours (Std Dev normalized)</span>
             </div>
+
+            <!-- Step 3: Variable Controls -->
+            <div id="sandbox-controls" class="hidden mt-5 rounded-xl border border-emerald-800/60 bg-slate-900/70 p-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                    <div>
+                        <h3 class="font-bold text-emerald-300">Experiment with the variables</h3>
+                        <p class="text-xs text-slate-400 mt-1">Move the bars and watch how unusual the student becomes.</p>
+                    </div>
+                    <button id="reset-controls" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600">Reset</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <label for="study-slider" class="text-slate-300">Study Hours</label>
+                            <span id="study-value" class="font-mono text-blue-300">0.00</span>
+                        </div>
+                        <input id="study-slider" type="range" min="-3" max="3" step="0.01" value="0" class="w-full accent-blue-500">
+                        <div class="flex justify-between text-[10px] text-slate-500"><span>Less than average</span><span>Average</span><span>More than average</span></div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <label for="sleep-slider" class="text-slate-300">Sleep Hours</label>
+                            <span id="sleep-value" class="font-mono text-purple-300">0.00</span>
+                        </div>
+                        <input id="sleep-slider" type="range" min="-3" max="3" step="0.01" value="0" class="w-full accent-purple-500">
+                        <div class="flex justify-between text-[10px] text-slate-500"><span>Less than average</span><span>Average</span><span>More than average</span></div>
+                    </div>
+                </div>
+
+                <div class="mt-4 grid grid-cols-2 gap-3">
+                    <div class="rounded-lg bg-blue-950/40 border border-blue-800/50 p-3">
+                        <div class="text-[10px] uppercase tracking-wider text-slate-400">Euclidean</div>
+                        <div id="live-euclidean" class="text-xl font-bold text-blue-300">0.00</div>
+                        <div class="text-[10px] text-slate-500">distance from the centre</div>
+                    </div>
+                    <div class="rounded-lg bg-purple-950/40 border border-purple-800/50 p-3">
+                        <div class="text-[10px] uppercase tracking-wider text-slate-400">Mahalanobis</div>
+                        <div id="live-mahalanobis" class="text-xl font-bold text-purple-300">0.00</div>
+                        <div class="text-[10px] text-slate-500">distance from the pattern</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Right Column: Leaderboard / Explanation Panel -->
@@ -122,9 +166,52 @@
 
         let currentStep = 1;
         let activePointIndex = null;
+        let sandboxPoint = null;
+
+        const originalDataset = JSON.parse(JSON.stringify(dataset));
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
+
+        const studySlider = document.getElementById('study-slider');
+        const sleepSlider = document.getElementById('sleep-slider');
+        const studyValue = document.getElementById('study-value');
+        const sleepValue = document.getElementById('sleep-value');
+        const liveEuclidean = document.getElementById('live-euclidean');
+        const liveMahalanobis = document.getElementById('live-mahalanobis');
+        const resetControls = document.getElementById('reset-controls');
+
+        function syncSandboxControls() {
+            if (!sandboxPoint) return;
+            studySlider.value = sandboxPoint.study;
+            sleepSlider.value = sandboxPoint.sleep;
+            studyValue.textContent = Number(sandboxPoint.study).toFixed(2);
+            sleepValue.textContent = Number(sandboxPoint.sleep).toFixed(2);
+            computeDistances();
+            liveEuclidean.textContent = sandboxPoint.euclidean.toFixed(2);
+            liveMahalanobis.textContent = sandboxPoint.mahalanobis.toFixed(2);
+        }
+
+        function updateSandboxPoint() {
+            if (!sandboxPoint || currentStep !== 3) return;
+            sandboxPoint.study = parseFloat(studySlider.value);
+            sandboxPoint.sleep = parseFloat(sleepSlider.value);
+            syncSandboxControls();
+            draw();
+        }
+
+        studySlider.addEventListener('input', updateSandboxPoint);
+        sleepSlider.addEventListener('input', updateSandboxPoint);
+
+        resetControls.addEventListener('click', () => {
+            const saved = originalDataset.find(p => p.name === sandboxPoint?.name);
+            if (saved && sandboxPoint) {
+                sandboxPoint.study = saved.study;
+                sandboxPoint.sleep = saved.sleep;
+            }
+            syncSandboxControls();
+            draw();
+        });
 
         function resizeCanvas() {
             const rect = canvas.parentElement.getBoundingClientRect();
@@ -178,6 +265,7 @@
             const subtitle = document.getElementById('ranking-subtitle');
             const thScore1 = document.getElementById('th-score1');
             const thScore2 = document.getElementById('th-score2');
+            const sandboxControls = document.getElementById('sandbox-controls');
 
             if (step === 1) {
                 title.innerText = 'Step 1: "Who looks unusual?" (Euclidean Distance)';
@@ -188,6 +276,7 @@
                 thScore1.innerText = 'Euclidean';
                 thScore2.classList.add('hidden');
                 callout.innerHTML = 'Euclidean distance asks: <em>"How far are you from the average in a straight line?"</em> Dev ranks first because his study hours place him far from the group center.';
+                sandboxControls.classList.add('hidden');
             } else if (step === 2) {
                 title.innerText = 'Step 2: "What if variables are related?" (Mahalanobis Distance)';
                 desc.innerHTML = 'Study and Sleep are negatively related in this demonstration (more study = less sleep). The boundary stretches into an <strong>ellipse</strong>. Simran breaks the overall pattern, making her the most unusual observation under Mahalanobis distance.';
@@ -197,6 +286,7 @@
                 thScore1.innerText = 'Mahalanobis';
                 thScore2.classList.add('hidden');
                 callout.innerHTML = 'Mahalanobis distance asks: <em>"How unusual are you given the covariance pattern?"</em> Dev follows the overall correlation trend relatively well, so he drops from rank 1 to rank 2. Simran becomes the most unusual observation because her combination of study and sleep does not fit the overall pattern as well.';
+                sandboxControls.classList.add('hidden');
             } else if (step === 3) {
                 title.innerText = 'Step 3: Interactive Sandbox (Both Measures)';
                 desc.innerHTML = '<strong>Click and drag any point</strong> around the canvas. Compare <strong>Euclidean</strong> (straight-line distance) and <strong>Mahalanobis</strong> (correlation-aware distance) simultaneously in real time. Try moving a point <strong>along the diagonal trend</strong> and then <strong>away from it</strong>.';
@@ -206,6 +296,9 @@
                 thScore1.innerText = 'Euclidean';
                 thScore2.classList.remove('hidden');
                 callout.innerHTML = 'Sandbox Comparison: Notice how a point can have a high Euclidean distance (far from the center) but a relatively lower Mahalanobis distance if it follows the diagonal correlation trend. Being far away is not necessarily unusual; being far from the pattern is.';
+                sandboxControls.classList.remove('hidden');
+                if (!sandboxPoint) sandboxPoint = dataset.find(p => p.name === 'Dev');
+                syncSandboxControls();
             }
 
             draw();
@@ -356,6 +449,8 @@
                 if (dist < 18) {
                     isDragging = true;
                     selectedPoint = p;
+                    sandboxPoint = p;
+                    syncSandboxControls();
                 }
             });
         });
@@ -370,6 +465,7 @@
 
             selectedPoint.study = fromCanvasX(mouseX, width);
             selectedPoint.sleep = fromCanvasY(mouseY, height);
+            syncSandboxControls();
             draw();
         });
 
