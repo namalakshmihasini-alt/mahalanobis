@@ -248,6 +248,7 @@
 
         function setStep(step) {
             currentStep = step;
+            document.getElementById('canvas-tooltip').classList.add('hidden');
             
             for (let i = 1; i <= 3; i++) {
                 const btn = document.getElementById(`btn-step${i}`);
@@ -456,17 +457,60 @@
         });
 
         canvas.addEventListener('mousemove', (e) => {
-            if (!isDragging || !selectedPoint || currentStep !== 3) return;
+            if (currentStep !== 3) return;
+
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
             const width = canvas.clientWidth;
             const height = canvas.clientHeight;
+            const tooltip = document.getElementById('canvas-tooltip');
 
-            selectedPoint.study = fromCanvasX(mouseX, width);
-            selectedPoint.sleep = fromCanvasY(mouseY, height);
-            syncSandboxControls();
-            draw();
+            // While dragging, move the selected student and keep their name visible.
+            if (isDragging && selectedPoint) {
+                selectedPoint.study = fromCanvasX(mouseX, width);
+                selectedPoint.sleep = fromCanvasY(mouseY, height);
+                syncSandboxControls();
+                draw();
+
+                tooltip.innerHTML = `<strong>${selectedPoint.name}</strong><br>Study: ${selectedPoint.study.toFixed(2)} &nbsp; Sleep: ${selectedPoint.sleep.toFixed(2)}`;
+                tooltip.classList.remove('hidden');
+                tooltip.style.left = `${Math.min(mouseX + 14, width - 175)}px`;
+                tooltip.style.top = `${Math.max(8, mouseY - 58)}px`;
+                tooltip.style.bottom = 'auto';
+                return;
+            }
+
+            // Hover mode: show the student's name when the cursor is near any point.
+            let hoveredPoint = null;
+            let closestDistance = Infinity;
+
+            dataset.forEach(p => {
+                const px = toCanvasX(p.study, width);
+                const py = toCanvasY(p.sleep, height);
+                const dist = Math.hypot(px - mouseX, py - mouseY);
+                if (dist < 18 && dist < closestDistance) {
+                    hoveredPoint = p;
+                    closestDistance = dist;
+                }
+            });
+
+            if (hoveredPoint) {
+                tooltip.innerHTML = `<strong>${hoveredPoint.name}</strong><br>Study: ${hoveredPoint.study.toFixed(2)} &nbsp; Sleep: ${hoveredPoint.sleep.toFixed(2)}`;
+                tooltip.classList.remove('hidden');
+                tooltip.style.left = `${Math.min(mouseX + 14, width - 175)}px`;
+                tooltip.style.top = `${Math.max(8, mouseY - 58)}px`;
+                tooltip.style.bottom = 'auto';
+                canvas.style.cursor = 'pointer';
+            } else {
+                tooltip.classList.add('hidden');
+                canvas.style.cursor = 'crosshair';
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            document.getElementById('canvas-tooltip').classList.add('hidden');
+            canvas.style.cursor = 'crosshair';
         });
 
         window.addEventListener('mouseup', () => {
